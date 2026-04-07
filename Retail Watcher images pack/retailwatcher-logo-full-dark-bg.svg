@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100" viewBox="0 0 400 100">
+  <rect width="400" height="100" rx="12" fill="#0D0F14"/>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#E8494A"/><stop offset="100%" stop-color="#F0A500"/></linearGradient></defs>
+  <ellipse cx="56" cy="50" rx="30" ry="21" fill="url(#g)"/>
+  <circle cx="56" cy="50" r="11" fill="#0D0F14"/>
+  <circle cx="56" cy="50" r="5.5" fill="#F0A500"/>
+  <path d="M46 52L51 46L56 49L66 42" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="98" y="48" font-family="Helvetica,Arial,sans-serif" font-weight="800" font-size="24" fill="#F5F5F0">Retail</text>
+  <text x="177" y="48" font-family="Helvetica,Arial,sans-serif" font-weight="500" font-size="24" fill="#F5F5F0">Watcher</text>
+  <text x="98" y="66" font-family="Helvetica,Arial,sans-serif" font-weight="600" font-size="8" fill="#666666" letter-spacing="2">INVENTORY INTELLIGENCE</text>
+</svg>
