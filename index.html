@@ -24,7 +24,7 @@ src="https://www.facebook.com/tr?id=946957081285419&ev=PageView&noscript=1"
 <meta name="description" content="The inventory intelligence platform built for small store owners. Track purchases, catch price changes, monitor expiry dates, and let Watcher AI tell you exactly where to shop for maximum profit.">
 <link rel="icon" type="image/png" href="retailwatcher-icon-1024.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -294,13 +294,9 @@ footer{border-top:1px solid var(--border);padding:40px 5%}
     <h2 class="section-title">See it in action.</h2>
     <p class="section-desc">Watch how RetailWatcher catches price creep, tracks expiry, and protects your profits — automatically.</p>
     <div style="margin-top:40px;border-radius:16px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.5);border:1px solid var(--border2);position:relative;aspect-ratio:16/9">
-      <iframe
-        src="feature-tour/RetailWatcher Feature Tour.html"
-        style="width:100%;height:100%;border:none;display:block"
-        allowfullscreen
-        title="RetailWatcher Feature Tour"
-      ></iframe>
+      <div id="rw-tour" style="position:absolute;inset:0;"></div>
     </div>
+    <div id="rw-tweaks-root"></div>
     <p style="text-align:center;font-size:13px;color:var(--subtle);margin-top:16px">↑ Press play · Use ← → arrows to scrub · Space to pause</p>
   </div>
 </section>
@@ -596,6 +592,525 @@ document.querySelectorAll('a[href^="#"]').forEach(function(a){
     if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'});}
   });
 });
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+const Easing = {
+  linear:(t)=>t, easeInQuad:(t)=>t*t, easeOutQuad:(t)=>t*(2-t),
+  easeInCubic:(t)=>t*t*t, easeOutCubic:(t)=>(--t)*t*t+1,
+  easeInOutCubic:(t)=>t<0.5?4*t*t*t:(t-1)*(2*t-2)*(2*t-2)+1,
+  easeInQuad:(t)=>t*t, easeOutQuad:(t)=>t*(2-t),
+  easeInExpo:(t)=>t===0?0:Math.pow(2,10*(t-1)),
+  easeOutExpo:(t)=>t===1?1:1-Math.pow(2,-10*t),
+  easeInSine:(t)=>1-Math.cos((t*Math.PI)/2),
+  easeOutSine:(t)=>Math.sin((t*Math.PI)/2),
+  easeOutBack:(t)=>{const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2);},
+  easeInBack:(t)=>{const c1=1.70158,c3=c1+1;return c3*t*t*t-c1*t*t;},
+  easeInOutBack:(t)=>{const c1=1.70158,c2=c1*1.525;return t<0.5?(Math.pow(2*t,2)*((c2+1)*2*t-c2))/2:(Math.pow(2*t-2,2)*((c2+1)*(t*2-2)+c2)+2)/2;},
+  easeOutElastic:(t)=>{const c4=(2*Math.PI)/3;if(t===0)return 0;if(t===1)return 1;return Math.pow(2,-10*t)*Math.sin((t*10-0.75)*c4)+1;},
+};
+const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+const TimelineContext=React.createContext({time:0,duration:10,playing:false});
+const useTimeline=()=>React.useContext(TimelineContext);
+const SpriteContext=React.createContext({localTime:0,progress:0,duration:0});
+const useSprite=()=>React.useContext(SpriteContext);
+function Sprite({start=0,end=Infinity,children,keepMounted=false}){
+  const{time}=useTimeline();const visible=time>=start&&time<=end;
+  if(!visible&&!keepMounted)return null;
+  const duration=end-start,localTime=Math.max(0,time-start);
+  const progress=duration>0&&isFinite(duration)?clamp(localTime/duration,0,1):0;
+  const value={localTime,progress,duration,visible};
+  return <SpriteContext.Provider value={value}>{typeof children==='function'?children(value):children}</SpriteContext.Provider>;
+}
+function Stage({width=1280,height=720,duration=10,background='#f6f4ef',loop=true,autoplay=true,persistKey='animstage',children}){
+  const[time,setTime]=React.useState(()=>{try{const v=parseFloat(localStorage.getItem(persistKey+':t')||'0');return isFinite(v)?clamp(v,0,duration):0;}catch{return 0;}});
+  const[playing,setPlaying]=React.useState(autoplay);
+  const[hoverTime,setHoverTime]=React.useState(null);
+  const[scale,setScale]=React.useState(1);
+  const stageRef=React.useRef(null),rafRef=React.useRef(null),lastTsRef=React.useRef(null);
+  React.useEffect(()=>{try{localStorage.setItem(persistKey+':t',String(time));}catch{}},[time,persistKey]);
+  React.useEffect(()=>{
+    if(!stageRef.current)return;
+    const el=stageRef.current;
+    const measure=()=>{const barH=44;const s=Math.min(el.clientWidth/width,(el.clientHeight-barH)/height);setScale(Math.max(0.05,s));};
+    measure();const ro=new ResizeObserver(measure);ro.observe(el);window.addEventListener('resize',measure);
+    return()=>{ro.disconnect();window.removeEventListener('resize',measure);};
+  },[width,height]);
+  React.useEffect(()=>{
+    if(!playing){lastTsRef.current=null;return;}
+    const step=(ts)=>{if(lastTsRef.current==null)lastTsRef.current=ts;const dt=(ts-lastTsRef.current)/1000;lastTsRef.current=ts;
+      setTime(t=>{let next=t+dt;if(next>=duration){if(loop)next=next%duration;else{next=duration;setPlaying(false);}}return next;});
+      rafRef.current=requestAnimationFrame(step);};
+    rafRef.current=requestAnimationFrame(step);
+    return()=>{if(rafRef.current)cancelAnimationFrame(rafRef.current);lastTsRef.current=null;};
+  },[playing,duration,loop]);
+  React.useEffect(()=>{
+    const onKey=(e)=>{if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;
+      if(e.code==='Space'){e.preventDefault();setPlaying(p=>!p);}
+      else if(e.code==='ArrowLeft')setTime(t=>clamp(t-(e.shiftKey?1:0.1),0,duration));
+      else if(e.code==='ArrowRight')setTime(t=>clamp(t+(e.shiftKey?1:0.1),0,duration));
+      else if(e.key==='0'||e.code==='Home')setTime(0);};
+    window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);
+  },[duration]);
+  const displayTime=hoverTime!=null?hoverTime:time;
+  const ctxValue=React.useMemo(()=>({time:displayTime,duration,playing,setTime,setPlaying}),[displayTime,duration,playing]);
+  return(
+    <div ref={stageRef} style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',background:'#0a0a0a',fontFamily:'Inter,system-ui,sans-serif'}}>
+      <div style={{flex:1,width:'100%',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',minHeight:0}}>
+        <div style={{width,height,background,position:'relative',transform:`scale(${scale})`,transformOrigin:'center',flexShrink:0,boxShadow:'0 20px 60px rgba(0,0,0,0.4)',overflow:'hidden'}}>
+          <TimelineContext.Provider value={ctxValue}>{children}</TimelineContext.Provider>
+        </div>
+      </div>
+      <PlaybackBar time={displayTime} duration={duration} playing={playing}
+        onPlayPause={()=>setPlaying(p=>!p)} onReset={()=>setTime(0)}
+        onSeek={t=>setTime(t)} onHover={t=>setHoverTime(t)}/>
+    </div>
+  );
+}
+function PlaybackBar({time,duration,playing,onPlayPause,onReset,onSeek,onHover}){
+  const trackRef=React.useRef(null);const[dragging,setDragging]=React.useState(false);
+  const timeFromEvent=React.useCallback(e=>{const rect=trackRef.current.getBoundingClientRect();return clamp((e.clientX-rect.left)/rect.width,0,1)*duration;},[duration]);
+  React.useEffect(()=>{if(!dragging)return;const onUp=()=>setDragging(false);const onMove=e=>{if(trackRef.current)onSeek(timeFromEvent(e));};window.addEventListener('mouseup',onUp);window.addEventListener('mousemove',onMove);return()=>{window.removeEventListener('mouseup',onUp);window.removeEventListener('mousemove',onMove);};},[dragging,timeFromEvent,onSeek]);
+  const pct=duration>0?(time/duration)*100:0;
+  const fmt=t=>{const m=Math.floor(Math.max(0,t)/60);const s=Math.floor(Math.max(0,t)%60);const cs=Math.floor((Math.max(0,t)*100)%100);return`${m}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;};
+  const mono='"JetBrains Mono",ui-monospace,monospace';
+  return(
+    <div style={{display:'flex',alignItems:'center',gap:12,padding:'8px 16px',background:'rgba(20,20,20,0.92)',borderTop:'1px solid rgba(255,255,255,0.08)',width:'100%',maxWidth:680,alignSelf:'center',borderRadius:8,color:'#f6f4ef',userSelect:'none',flexShrink:0}}>
+      <button onClick={onReset} style={{width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,color:'#f6f4ef',cursor:'pointer',padding:0}}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 2v10M12 2L5 7l7 5V2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"/></svg>
+      </button>
+      <button onClick={onPlayPause} style={{width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,color:'#f6f4ef',cursor:'pointer',padding:0}}>
+        {playing?<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="3" y="2" width="3" height="10" fill="currentColor"/><rect x="8" y="2" width="3" height="10" fill="currentColor"/></svg>:<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 2l9 5-9 5V2z" fill="currentColor"/></svg>}
+      </button>
+      <div style={{fontFamily:mono,fontSize:12,fontVariantNumeric:'tabular-nums',width:64,textAlign:'right'}}>{fmt(time)}</div>
+      <div ref={trackRef} onMouseMove={e=>{if(!trackRef.current)return;const t=timeFromEvent(e);if(dragging)onSeek(t);else onHover(t);}} onMouseLeave={()=>{if(!dragging)onHover(null);}} onMouseDown={e=>{setDragging(true);onSeek(timeFromEvent(e));onHover(null);}} style={{flex:1,height:22,position:'relative',cursor:'pointer',display:'flex',alignItems:'center'}}>
+        <div style={{position:'absolute',left:0,right:0,height:4,background:'rgba(255,255,255,0.12)',borderRadius:2}}/>
+        <div style={{position:'absolute',left:0,width:`${pct}%`,height:4,background:'#5B9BD5',borderRadius:2}}/>
+        <div style={{position:'absolute',left:`${pct}%`,top:'50%',width:12,height:12,marginLeft:-6,marginTop:-6,background:'#fff',borderRadius:6}}/>
+      </div>
+      <div style={{fontFamily:mono,fontSize:12,fontVariantNumeric:'tabular-nums',width:64,color:'rgba(246,244,239,0.55)'}}>{fmt(duration)}</div>
+    </div>
+  );
+}
+Object.assign(window,{Easing,clamp,TimelineContext,useTimeline,SpriteContext,useSprite,Sprite,Stage,PlaybackBar});
+</script>
+
+<script type="text/babel" data-presets="react">
+const RW_DEFAULTS={brand:'#0D6E6E',ink:'#0F1614',paper:'#F4F0E7',red:'#C8432E',green:'#2F8A5A',amber:'#C88A2E',blue:'#2E6CC8',contrast:'high',serifFont:'Instrument Serif',sansFont:'Inter'};
+window.RW_TWEAKS={brand:'#E8494A',ink:'#F0EFE8',paper:'#0D0F14',red:'#E8494A',green:'#45B69C',amber:'#F0A500',blue:'#2D7DD2',contrast:'high',serifFont:'Instrument Serif',sansFont:'Inter'};
+function mixColor(a,b,pct){const pa=hexToRgb(a),pb=hexToRgb(b);return'#'+[Math.round(pa.r+(pb.r-pa.r)*pct),Math.round(pa.g+(pb.g-pa.g)*pct),Math.round(pa.b+(pb.b-pa.b)*pct)].map(x=>x.toString(16).padStart(2,'0')).join('');}
+function hexToRgb(h){const v=h.replace('#','');return{r:parseInt(v.slice(0,2),16),g:parseInt(v.slice(2,4),16),b:parseInt(v.slice(4,6),16)};}
+function buildRW(){const t={...RW_DEFAULTS,...(window.RW_TWEAKS||{})};const paper=t.paper,ink=t.ink,hc=t.contrast==='high';return{paper,paperAlt:mixColor(paper,ink,0.08),ink,inkSoft:hc?mixColor(ink,paper,0.15):mixColor(ink,paper,0.28),inkMute:hc?mixColor(ink,paper,0.38):mixColor(ink,paper,0.50),line:mixColor(paper,ink,0.14),brand:t.brand,brandSoft:mixColor(t.brand,paper,0.78),red:t.red,redSoft:mixColor(t.red,paper,0.82),green:t.green,greenSoft:mixColor(t.green,paper,0.82),amber:t.amber,amberSoft:mixColor(t.amber,paper,0.82),blue:t.blue,serif:`"${t.serifFont}",Georgia,serif`,sans:`${t.sansFont},system-ui,sans-serif`,mono:'"JetBrains Mono",ui-monospace,monospace'};}
+const RW=new Proxy({},{get(_,key){return buildRW()[key];}});
+function SceneChrome({index,total,eyebrow,title,subtitle}){
+  const{localTime,duration}=useSprite();const entryDur=0.5,exitDur=0.5,exitStart=Math.max(0,duration-exitDur);
+  let op=1,ty=0;
+  if(localTime<entryDur){const t=Easing.easeOutCubic(localTime/entryDur);op=t;ty=(1-t)*12;}
+  else if(localTime>exitStart){const t=Easing.easeInCubic((localTime-exitStart)/exitDur);op=1-t;ty=-t*6;}
+  return(<>
+    <div style={{position:'absolute',top:56,left:80,right:80,display:'flex',alignItems:'flex-start',justifyContent:'space-between',opacity:op,transform:`translateY(${ty}px)`,pointerEvents:'none'}}>
+      <div>
+        <div style={{fontFamily:RW.mono,fontSize:13,letterSpacing:'0.18em',textTransform:'uppercase',color:RW.inkMute,marginBottom:18}}>{eyebrow}</div>
+        <div style={{fontFamily:RW.serif,fontSize:68,lineHeight:1.15,color:RW.ink,letterSpacing:'-0.02em',fontWeight:400,maxWidth:1260,paddingBottom:12}}>{title}</div>
+        {subtitle&&<div style={{fontFamily:RW.sans,fontSize:22,color:RW.inkSoft,marginTop:48,maxWidth:760,lineHeight:1.35}}>{subtitle}</div>}
+      </div>
+      <div style={{fontFamily:RW.mono,fontSize:13,color:RW.inkMute,textAlign:'right',minWidth:120}}>
+        <div style={{fontSize:48,color:RW.ink,lineHeight:1,fontFamily:RW.serif}}>{String(index).padStart(2,'0')}</div>
+        <div style={{marginTop:8}}>/ {String(total).padStart(2,'0')}</div>
+      </div>
+    </div>
+    <div style={{position:'absolute',bottom:48,left:80,right:80,display:'flex',alignItems:'center',justifyContent:'space-between',opacity:op*0.8,pointerEvents:'none'}}>
+      <div style={{fontFamily:RW.mono,fontSize:12,letterSpacing:'0.22em',textTransform:'uppercase',color:RW.inkMute,display:'flex',alignItems:'center',gap:12}}>
+        <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" stroke={RW.ink} strokeWidth="1.2" fill="none"/><circle cx="7" cy="7" r="2.2" fill={RW.ink}/></svg>RetailWatcher
+      </div>
+      <div style={{fontFamily:RW.mono,fontSize:12,letterSpacing:'0.22em',textTransform:'uppercase',color:RW.inkMute}}>Protect Your Profits</div>
+    </div>
+  </>);
+}
+function Counter({from,to,start=0,end=1,prefix='',suffix='',decimals=0,ease=Easing.easeOutCubic,style}){
+  const{localTime}=useSprite();const p=clamp((localTime-start)/(end-start),0,1);const val=from+(to-from)*ease(p);
+  return <span style={style}>{prefix}{val.toFixed(decimals)}{suffix}</span>;
+}
+function Typewriter({text,start=0,cps=40,style,cursor=true}){
+  const{localTime}=useSprite();const elapsed=Math.max(0,localTime-start);const n=Math.min(text.length,Math.floor(elapsed*cps));
+  const done=n>=text.length;const showCursor=cursor&&(!done||Math.floor(elapsed*2)%2===0);
+  return <span style={style}>{text.slice(0,n)}{showCursor&&<span style={{opacity:0.6}}>▍</span>}</span>;
+}
+Object.assign(window,{RW,RW_DEFAULTS,SceneChrome,Counter,Typewriter,mixColor});
+</script>
+
+<script type="text/babel" data-presets="react">
+function SceneIntro({start,duration}){return <Sprite start={start} end={start+duration}><SceneIntroInner/></Sprite>;}
+function SceneIntroInner(){
+  const{localTime}=useSprite();
+  const words=[{t:'Protect',d:0.0},{t:'your',d:0.25},{t:'profits.',d:0.5}];
+  const eyeT=Easing.easeOutCubic(clamp(localTime/0.5,0,1));
+  const subT=Easing.easeOutCubic(clamp((localTime-1.4)/0.6,0,1));
+  const chips=['Price Alerts','Vendor Compare','Expiry Tracker','Loss & Shrink','Invoice OCR','Restock Advisor','Watcher AI'];
+  return(<>
+    <div style={{position:'absolute',left:80,top:80,fontFamily:RW.mono,fontSize:13,letterSpacing:'0.22em',textTransform:'uppercase',color:RW.inkMute,opacity:eyeT,display:'flex',alignItems:'center',gap:14}}>
+      <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" stroke={RW.ink} strokeWidth="1.2" fill="none"/><circle cx="7" cy="7" r="2.2" fill={RW.ink}/></svg>RetailWatcher
+    </div>
+    <div style={{position:'absolute',right:80,top:80,fontFamily:RW.mono,fontSize:13,letterSpacing:'0.22em',textTransform:'uppercase',color:RW.inkMute,opacity:eyeT,textAlign:'right'}}>Inventory intelligence<br/>for store owners</div>
+    <div style={{position:'absolute',left:80,right:80,top:340,fontFamily:RW.serif,fontSize:240,lineHeight:0.92,letterSpacing:'-0.035em',color:RW.ink}}>
+      {words.map((w,i)=>{const t=clamp((localTime-w.d)/0.6,0,1);const e=Easing.easeOutCubic(t);return <span key={i} style={{display:'inline-block',opacity:e,transform:`translateY(${(1-e)*40}px)`,marginRight:28}}>{i===2?<em style={{fontStyle:'italic'}}>{w.t}</em>:w.t}</span>;})}
+    </div>
+    <div style={{position:'absolute',left:80,top:620,fontFamily:RW.sans,fontSize:28,color:RW.inkSoft,opacity:subT,maxWidth:900,lineHeight:1.3,transform:`translateY(${(1-subT)*12}px)`}}>Inventory intelligence for store owners. Every price, every expiry, every loss — watched.</div>
+    <div style={{position:'absolute',left:80,right:80,bottom:120,display:'flex',flexWrap:'wrap',gap:10}}>
+      {chips.map((c,i)=>{const t=clamp((localTime-(2.2+i*0.08))/0.4,0,1);const e=Easing.easeOutBack(t);return <div key={c} style={{padding:'10px 18px',border:`1px solid ${RW.ink}`,fontFamily:RW.mono,fontSize:13,letterSpacing:'0.15em',textTransform:'uppercase',color:RW.ink,opacity:t,transform:`scale(${e})`,transformOrigin:'center'}}>{String(i+1).padStart(2,'0')} · {c}</div>;})}
+    </div>
+    <div style={{position:'absolute',left:80,right:80,bottom:60,display:'flex',justifyContent:'space-between',fontFamily:RW.mono,fontSize:12,letterSpacing:'0.22em',textTransform:'uppercase',color:RW.inkMute,opacity:eyeT}}><span>Feature Tour · 07 scenes</span><span>Built by a store owner, for store owners</span></div>
+  </>);
+}
+function SceneOutro({start,duration}){return <Sprite start={start} end={start+duration}><SceneOutroInner/></Sprite>;}
+function SceneOutroInner(){
+  const{localTime}=useSprite();
+  const h1T=Easing.easeOutCubic(clamp(localTime/0.7,0,1));
+  const ctaT=clamp((localTime-2.2)/0.5,0,1);
+  const plans=[{name:'Starter',price:0,sub:'Free forever',hl:false},{name:'Pro',price:39.99,sub:'per month',hl:true},{name:'Enterprise',price:89.99,sub:'per month · full power',hl:false}];
+  return(<>
+    <div style={{position:'absolute',left:80,right:80,top:160,fontFamily:RW.serif,fontSize:150,lineHeight:0.95,letterSpacing:'-0.03em',color:RW.ink,opacity:h1T,transform:`translateY(${(1-h1T)*24}px)`}}>Stop guessing.<br/>Start <em style={{fontStyle:'italic',color:RW.green}}>knowing.</em></div>
+    <div style={{position:'absolute',left:80,right:80,top:560,display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:24}}>
+      {plans.map((p,i)=>{const t=clamp((localTime-0.8-i*0.15)/0.5,0,1);const e=Easing.easeOutCubic(t);return <div key={p.name} style={{padding:'30px 32px',background:p.hl?RW.ink:RW.paper,color:p.hl?RW.paper:RW.ink,border:p.hl?`1px solid ${RW.ink}`:`1px solid ${RW.line||'#333'}`,opacity:t,transform:`translateY(${(1-e)*24}px)`,display:'flex',flexDirection:'column',gap:10,minHeight:200}}>
+        <div style={{fontFamily:RW.mono,fontSize:11,letterSpacing:'0.22em',textTransform:'uppercase',color:p.hl?'rgba(245,241,234,0.6)':RW.inkMute}}>{p.hl?'★ Most Popular':'Plan'}</div>
+        <div style={{fontFamily:RW.serif,fontSize:48,letterSpacing:'-0.01em',lineHeight:1}}>{p.name}</div>
+        <div style={{display:'flex',alignItems:'baseline',gap:8,marginTop:'auto'}}><span style={{fontFamily:RW.serif,fontSize:62,fontVariantNumeric:'tabular-nums',lineHeight:1}}>${p.price.toFixed(p.price===0?0:2)}</span><span style={{fontFamily:RW.mono,fontSize:13,opacity:0.7}}>{p.sub}</span></div>
+      </div>;})}
+    </div>
+    <div style={{position:'absolute',left:80,right:80,bottom:80,display:'flex',justifyContent:'space-between',alignItems:'center',opacity:ctaT,transform:`translateY(${(1-ctaT)*12}px)`,paddingTop:30,borderTop:`1px solid rgba(255,255,255,0.1)`}}>
+      <div style={{fontFamily:RW.mono,fontSize:14,letterSpacing:'0.2em',color:RW.inkMute,textTransform:'uppercase'}}>retailwatcher.app · Free forever on Starter · Setup in 2 minutes</div>
+      <div style={{background:RW.ink,color:RW.paper,padding:'16px 28px',fontFamily:RW.sans,fontSize:18,fontWeight:600}}>Start free — no card needed →</div>
+    </div>
+  </>);
+}
+Object.assign(window,{SceneIntro,SceneOutro});
+</script>
+
+<script type="text/babel" data-presets="react">
+function SceneP1_Spreadsheet({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Problem 01 · The Spreadsheet" title={<>Your spreadsheet is <em style={{fontStyle:'italic',color:RW.red}}>costing you money.</em></>} subtitle="New tab every month. Formulas breaking. You spend more time fixing the sheet than running your store."/><SceneP1Inner/></Sprite>;}
+function SceneP1Inner(){
+  const{localTime}=useSprite();
+  const sheetX=140,sheetY=470,sheetW=1040,sheetH=520;
+  const tabs=[{name:'Jan',t:0.0},{name:'Feb',t:0.25},{name:'Mar',t:0.5},{name:'Apr',t:0.75},{name:'Apr v2',t:1.1},{name:'Apr v3',t:1.45},{name:'Apr-FIX',t:1.8},{name:'FINAL',t:2.15},{name:'FINAL-final',t:2.5},{name:'use-this',t:2.9}];
+  const cols=['Product','Vendor','Qty','Cost','Sale','Profit'];const colFlex=[2.4,1.6,0.7,1,1,1];
+  const rows=[{product:'Oxtail',vendor:'Dreamland',qty:12,cost:12.99,sale:19.99,errAt:3.1,errCol:5},{product:'Palm Oil 1L',vendor:'Import Foods',qty:24,cost:8.49,sale:13.99,errAt:3.4,errCol:3},{product:'Goat Meat',vendor:'Dreamland',qty:10,cost:5.00,sale:9.99,errAt:3.7,errCol:5},{product:'Fish Powder',vendor:'ILham',qty:30,cost:12.00,sale:19.99,errAt:4.0,errCol:4},{product:'Scotch Bonnet',vendor:'',qty:6,cost:4.25,sale:7.00,errAt:2.6,errCol:1},{product:'Evap. Milk',vendor:'Res Depot',qty:12,cost:2.10,sale:3.99,errAt:2.8,errCol:3},{product:'Frozen Tilapia',vendor:'Star Ocean',qty:8,cost:7.50,sale:12.99,errAt:3.3,errCol:5},{product:'Bread Loaf',vendor:'Local',qty:20,cost:1.80,sale:3.50,errAt:3.6,errCol:4}];
+  const errStrings=['#REF!','#DIV/0!','#NAME?','#VALUE!','#ERROR!'];
+  const rowH=42,tabH=36;
+  const chaos=clamp((localTime-2.5)/2.5,0,1);const shake=chaos>0.3?Math.sin(localTime*18)*chaos*1.6:0;
+  const counterT=clamp((localTime-0.5)/4.5,0,1);
+  return(<>
+    <div style={{position:'absolute',left:sheetX,top:sheetY,width:sheetW,height:sheetH,background:'#fff',border:`1px solid #ddd`,boxShadow:'0 30px 60px rgba(0,0,0,0.12)',transform:`translate(${shake}px,${shake*0.6}px) rotate(${shake*0.08}deg)`,overflow:'hidden'}}>
+      <div style={{height:28,borderBottom:'1px solid #eee',display:'flex',alignItems:'center',padding:'0 12px',fontFamily:RW.sans,fontSize:11,color:'#555',gap:16,background:'#f5f4f0'}}><span>File</span><span>Edit</span><span>View</span><span>Insert</span><span>Format</span><span>Data</span><span style={{color:RW.red,fontWeight:600,marginLeft:'auto'}}>● Unsaved changes</span></div>
+      <div style={{height:28,borderBottom:'1px solid #eee',display:'flex',alignItems:'center',padding:'0 12px',fontFamily:RW.mono,fontSize:12,color:'#333',background:'#fcfbf7'}}><span style={{color:'#888',marginRight:10}}>fx</span><Typewriter text={"=IFERROR(VLOOKUP(A12,'Apr-FIX'!$A:$F,6,0)*(1-D12),'???')"} start={0.5} cps={38} cursor={localTime<2.0} style={{fontFamily:RW.mono,fontSize:12}}/></div>
+      <div style={{display:'flex',height:38,background:'#f1efea',borderBottom:'1px solid #eee',fontFamily:RW.sans,fontSize:12,color:'#555',fontWeight:600}}>
+        <div style={{width:36,borderRight:'1px solid #eee',display:'flex',alignItems:'center',justifyContent:'center'}}></div>
+        {cols.map((c,i)=><div key={c} style={{flex:colFlex[i],borderRight:'1px solid #eee',display:'flex',alignItems:'center',padding:'0 10px'}}>{String.fromCharCode(65+i)} <span style={{color:'#aaa',marginLeft:6}}>· {c}</span></div>)}
+      </div>
+      {rows.map((r,rowIdx)=>{const cellErr=localTime>r.errAt;const errStr=errStrings[rowIdx%errStrings.length];return <div key={rowIdx} style={{display:'flex',height:rowH,borderBottom:'1px solid #eee',fontFamily:RW.sans,fontSize:14}}>
+        <div style={{width:36,borderRight:'1px solid #eee',background:'#f5f4f0',color:'#777',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11}}>{rowIdx+2}</div>
+        {cols.map((_,colIdx)=>{const val=colIdx===0?r.product:colIdx===1?r.vendor:colIdx===2?r.qty:colIdx===3?`$${r.cost.toFixed(2)}`:colIdx===4?`$${r.sale.toFixed(2)}`:`$${((r.sale-r.cost)*r.qty).toFixed(2)}`;const thisErr=cellErr&&colIdx===r.errCol;return <div key={colIdx} style={{flex:colFlex[colIdx],borderRight:'1px solid #eee',display:'flex',alignItems:'center',padding:'0 10px',color:thisErr?RW.red:'#222',background:thisErr?'rgba(228,60,50,0.08)':'transparent',fontFamily:thisErr||colIdx>=2?RW.mono:RW.sans,fontVariantNumeric:'tabular-nums',fontWeight:thisErr?700:400}}>{thisErr?errStr:val}</div>;})}
+      </div>;})}
+      <div style={{position:'absolute',bottom:0,left:0,right:0,height:tabH,borderTop:'1px solid #eee',background:'#f1efea',display:'flex',alignItems:'stretch',padding:'0 8px',gap:2,overflow:'hidden'}}>
+        {tabs.map((tab,i)=>{const t=clamp((localTime-tab.t)/0.35,0,1);if(t<=0)return null;const isLast=i===tabs.filter(x=>localTime>x.t).length-1;const warn=tab.name.includes('FIX')||tab.name.includes('FINAL')||tab.name==='use-this';return <div key={i} style={{padding:'0 14px',borderLeft:'1px solid #eee',borderRight:'1px solid #eee',borderTop:'1px solid #eee',background:isLast?'#fff':'#e9e6df',display:'flex',alignItems:'center',gap:8,fontFamily:RW.sans,fontSize:12,color:warn?RW.red:'#333',fontWeight:warn?600:400,opacity:t,transform:`scaleX(${t})`,transformOrigin:'left',whiteSpace:'nowrap'}}>{tab.name}{warn&&<span style={{color:RW.red}}>●</span>}</div>;})}
+      </div>
+      {localTime>4.3&&<div style={{position:'absolute',left:'50%',top:'50%',transform:`translate(-50%,-50%) scale(${Easing.easeOutBack(clamp((localTime-4.3)/0.4,0,1))})`,width:340,background:'#fff',border:'1px solid #ddd',boxShadow:'0 20px 60px rgba(0,0,0,0.3)',padding:'20px 22px',fontFamily:RW.sans,fontSize:14,color:'#222'}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}><span style={{width:22,height:22,borderRadius:11,background:RW.red,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700}}>!</span><span style={{fontWeight:700}}>Circular reference</span></div><div style={{color:'#555',lineHeight:1.4,marginBottom:12,fontSize:13}}>One or more formulas contain a circular reference and may not calculate correctly.</div><div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><div style={{padding:'6px 14px',border:'1px solid #ddd',fontSize:12}}>Help</div><div style={{padding:'6px 14px',background:'#222',color:'#fff',fontSize:12}}>OK</div></div></div>}
+    </div>
+    <div style={{position:'absolute',right:80,top:sheetY,width:460}}>
+      <div style={{fontFamily:RW.mono,fontSize:11,letterSpacing:'0.22em',textTransform:'uppercase',color:RW.inkMute,marginBottom:20}}>The real cost · this month</div>
+      <div style={{paddingBottom:28,borderBottom:`1px solid rgba(255,255,255,0.1)`,marginBottom:28}}>
+        <div style={{fontFamily:RW.serif,fontSize:140,lineHeight:0.9,color:RW.red,letterSpacing:'-0.04em',fontVariantNumeric:'tabular-nums'}}>{(counterT*14.5).toFixed(1)}<span style={{fontSize:56,color:RW.inkSoft}}>hrs</span></div>
+        <div style={{fontFamily:RW.sans,fontSize:20,color:RW.inkSoft,marginTop:10,lineHeight:1.35}}>spent fixing broken formulas instead of serving customers.</div>
+      </div>
+      <div><div style={{fontFamily:RW.serif,fontSize:96,lineHeight:0.9,color:RW.ink,letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>$<Counter from={0} to={412} start={0.5} end={5.0} decimals={0} style={{fontFamily:RW.serif,fontVariantNumeric:'tabular-nums'}}/></div><div style={{fontFamily:RW.sans,fontSize:20,color:RW.inkSoft,marginTop:10,lineHeight:1.35}}>in pricing errors traced back to a bad VLOOKUP.</div></div>
+      <div style={{fontFamily:RW.mono,fontSize:12,letterSpacing:'0.18em',color:RW.red,textTransform:'uppercase',fontWeight:700,opacity:clamp((localTime-4.8)/0.5,0,1),borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:20,marginTop:20}}>There is a better way. →</div>
+    </div>
+  </>);
+}
+Object.assign(window,{SceneP1_Spreadsheet});
+</script>
+
+<script type="text/babel" data-presets="react">
+function SceneP2_PriceCreep({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Problem 02 · The Silent Drift" title={<>Your vendor raised prices <em style={{fontStyle:'italic',color:RW.red}}>8% last month.</em></>} subtitle="You didn't catch it. That's profit walking out the door — silently — invoice after invoice."/><SceneP2Inner/></Sprite>;}
+function SceneP2Inner(){
+  const{localTime}=useSprite();
+  const months=['Nov','Dec','Jan','Feb','Mar','Apr'];
+  const chartX=140,chartY=510,chartW=940,chartH=380,monthW=chartW/(months.length-1);
+  const products=[{name:'Oxtail',vendor:'Dreamland',watched:true,series:[1.00,1.00,1.01,1.00,1.02,1.08],startPrice:12.00,endPrice:12.96,totalLoss:576},{name:'Palm Oil 1L',vendor:'Import',watched:false,series:[1.00,1.02,1.04,1.05,1.07,1.11],startPrice:7.99,endPrice:8.87,totalLoss:422},{name:'Goat Meat',vendor:'Dreamland',watched:false,series:[1.00,1.01,1.03,1.06,1.09,1.12],startPrice:4.50,endPrice:5.04,totalLoss:324},{name:'Fish Powder',vendor:'ILham',watched:true,series:[1.00,1.00,1.00,1.01,1.01,1.01],startPrice:12.00,endPrice:12.12,totalLoss:72},{name:'Evap. Milk',vendor:'Res Depot',watched:false,series:[1.00,1.02,1.03,1.05,1.08,1.14],startPrice:1.89,endPrice:2.15,totalLoss:468},{name:'Frozen Tilapia',vendor:'Star Ocean',watched:false,series:[1.00,1.01,1.04,1.07,1.10,1.13],startPrice:6.99,endPrice:7.90,totalLoss:322}];
+  const revealT=clamp((localTime-0.4)/4.0,0,1),monthsShown=revealT*(months.length-1);
+  const laneH=chartH/products.length,revealShock=clamp((localTime-4.2)/0.8,0,1);
+  const totalLoss=products.reduce((s,p)=>s+p.totalLoss,0);
+  return(<>
+    <div style={{position:'absolute',left:chartX,top:chartY-34,fontFamily:RW.mono,fontSize:11,letterSpacing:'0.22em',color:RW.inkMute,textTransform:'uppercase',display:'flex',justifyContent:'space-between',width:chartW}}><span>Vendor Prices · 6 months</span><span>what you saw vs. what happened</span></div>
+    <div style={{position:'absolute',left:chartX,top:chartY+chartH+14,width:chartW,display:'flex',justifyContent:'space-between',fontFamily:RW.mono,fontSize:12,color:RW.inkMute,textTransform:'uppercase'}}>{months.map(m=><span key={m}>{m}</span>)}</div>
+    <svg style={{position:'absolute',left:0,top:0,width:1920,height:1080,pointerEvents:'none'}}>
+      {products.map((p,pi)=>{const laneYCenter=chartY+laneH*(pi+0.5);const amp=laneH*4.8;const pts=p.series.map((v,i)=>({x:chartX+i*monthW,y:laneYCenter-(v-1)*amp}));const visiblePts=pts.filter((_,i)=>i<=monthsShown);if(visiblePts.length<1)return null;let path=`M ${visiblePts[0].x},${visiblePts[0].y}`;for(let i=1;i<visiblePts.length;i++)path+=` L ${visiblePts[i].x},${visiblePts[i].y}`;const ni=visiblePts.length;if(ni<pts.length){const frac=monthsShown-(ni-1);if(frac>0){const a=pts[ni-1],b=pts[ni];path+=` L ${a.x+(b.x-a.x)*frac},${a.y+(b.y-a.y)*frac}`;}}const opacity=p.watched?1:(0.55+revealShock*0.45);return <g key={p.name}><line x1={chartX} y1={laneYCenter} x2={chartX+chartW} y2={laneYCenter} stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="2 6"/><path d={path} stroke={p.watched?RW.ink:RW.red} strokeWidth={p.watched?3:2} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}/></g>;})}
+    </svg>
+    {products.map((p,pi)=>{const laneYCenter=chartY+laneH*(pi+0.5);const opacity=p.watched?1:(0.7+revealShock*0.3);return <React.Fragment key={p.name}>
+      <div style={{position:'absolute',left:chartX-200,top:laneYCenter-14,width:180,textAlign:'right',fontFamily:RW.sans,fontSize:15,color:RW.ink,opacity}}><div style={{fontWeight:600}}>{p.name}</div><div style={{fontFamily:RW.mono,fontSize:10,color:RW.inkMute,textTransform:'uppercase',marginTop:2}}>{p.vendor}{p.watched&&<span style={{color:RW.green,marginLeft:8}}>● watched</span>}</div></div>
+      <div style={{position:'absolute',left:chartX+chartW+20,top:laneYCenter-14,width:200,fontFamily:RW.mono,fontSize:13,fontVariantNumeric:'tabular-nums',opacity,display:'flex',alignItems:'center',gap:8}}><span style={{color:RW.inkMute}}>${p.startPrice.toFixed(2)}</span><span style={{color:RW.inkMute}}>→</span><span style={{color:p.watched?RW.ink:RW.red,fontWeight:700}}>${p.endPrice.toFixed(2)}</span><span style={{fontSize:11,color:p.watched?RW.inkMute:RW.red,opacity:revealShock,fontWeight:700}}>▲{((p.endPrice/p.startPrice-1)*100).toFixed(0)}%</span></div>
+    </React.Fragment>;})}
+    <div style={{position:'absolute',left:chartX,top:chartY+chartH+60,fontFamily:RW.serif,fontSize:36,color:RW.ink,lineHeight:1.15,maxWidth:920,opacity:clamp((localTime-4.5)/0.6,0,1)}}>Six months of invisible increases across <em style={{fontStyle:'italic',color:RW.red}}>four vendors</em>.</div>
+    <div style={{position:'absolute',right:80,top:chartY-40,width:300,textAlign:'right'}}>
+      <div style={{fontFamily:RW.mono,fontSize:11,color:RW.inkMute,textTransform:'uppercase',marginBottom:12,opacity:clamp((localTime-4.2)/0.4,0,1)}}>Silent bleed · YTD</div>
+      <div style={{fontFamily:RW.serif,fontSize:128,lineHeight:0.88,color:RW.red,fontVariantNumeric:'tabular-nums',opacity:clamp((localTime-4.3)/0.5,0,1)}}>$<Counter from={0} to={totalLoss} start={4.5} end={5.6} decimals={0} style={{fontFamily:RW.serif,fontVariantNumeric:'tabular-nums'}}/></div>
+      <div style={{fontFamily:RW.sans,fontSize:18,color:RW.inkSoft,marginTop:14,lineHeight:1.35,opacity:clamp((localTime-4.8)/0.5,0,1)}}>of profit walked out the door — quietly, one invoice at a time.</div>
+    </div>
+  </>);
+}
+Object.assign(window,{SceneP2_PriceCreep});
+</script>
+
+<script type="text/babel" data-presets="react">
+function Scene1_PriceAlert({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Feature 01 · Price Alerts" title={<>The moment a vendor <em style={{fontStyle:'italic',color:RW.red}}>raises prices</em>, you know.</>} subtitle="Set a threshold from 1%–10%. RetailWatcher watches every invoice line and pings you the instant a vendor drifts."/><Scene1Inner/></Sprite>;}
+function Scene1Inner(){
+  const{localTime}=useSprite();
+  const chartX=180,chartY=540,chartW=900,chartH=300,threshold=13.60;
+  const series=[12.80,12.85,12.90,12.88,12.95,12.99,13.05,14.08,14.12,14.20];
+  const minP=12.5,maxP=14.5,revealEnd=3.5;
+  const shownCount=Math.min(series.length,Math.floor(clamp(localTime/revealEnd,0,1)*series.length)+1);
+  const xAt=i=>chartX+(i/(series.length-1))*chartW;
+  const yAt=p=>chartY+chartH-((p-minP)/(maxP-minP))*chartH;
+  const yThreshold=yAt(threshold);
+  const pts=series.slice(0,shownCount).map((p,i)=>`${xAt(i)},${yAt(p)}`);
+  const linePath=pts.length>1?`M ${pts.join(' L ')}`:'';
+  const spikeTriggerT=revealEnd*(7/(series.length-1));
+  const alertPhase=clamp((localTime-spikeTriggerT)/0.6,0,1);
+  const alertIn=Easing.easeOutBack(alertPhase);
+  const thresholdDraw=Easing.easeOutCubic(clamp(localTime/1.2,0,1));
+  return(<>
+    <div style={{position:'absolute',left:chartX,top:chartY+chartH,width:chartW,height:1,background:'rgba(255,255,255,0.15)'}}/>
+    {[12.5,13.0,13.5,14.0,14.5].map(v=><div key={v} style={{position:'absolute',left:chartX-70,top:yAt(v)-9,fontFamily:RW.mono,fontSize:14,color:RW.inkMute,fontVariantNumeric:'tabular-nums'}}>${v.toFixed(2)}</div>)}
+    {series.map((_,i)=>i%2===0&&<div key={i} style={{position:'absolute',left:xAt(i)-20,top:chartY+chartH+12,fontFamily:RW.mono,fontSize:12,color:RW.inkMute,textTransform:'uppercase'}}>Wk {i+1}</div>)}
+    <svg style={{position:'absolute',left:0,top:0,width:1920,height:1080,pointerEvents:'none'}}>
+      <line x1={chartX} y1={yThreshold} x2={chartX+chartW*thresholdDraw} y2={yThreshold} stroke={RW.red} strokeWidth="2" strokeDasharray="8 6" opacity="0.7"/>
+      {linePath&&<path d={linePath} stroke={RW.ink} strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>}
+    </svg>
+    <div style={{position:'absolute',left:chartX+chartW*thresholdDraw+8,top:yThreshold-12,opacity:thresholdDraw,fontFamily:RW.mono,fontSize:13,color:RW.red,textTransform:'uppercase',fontWeight:600}}>Threshold +5%</div>
+    {series.slice(0,shownCount).map((p,i)=>{const spike=i===7;const since=localTime-(revealEnd*i/(series.length-1));const pop=Easing.easeOutBack(clamp(since/0.3,0,1));return <div key={i} style={{position:'absolute',left:xAt(i)-7,top:yAt(p)-7,width:14,height:14,borderRadius:7,background:spike?RW.red:RW.ink,transform:`scale(${pop})`,boxShadow:spike?`0 0 0 ${6+Math.sin(localTime*8)*2}px ${RW.redSoft}`:'none'}}/>;})}
+    {alertPhase>0&&<div style={{position:'absolute',left:xAt(7)-50,top:yAt(series[7])-54,fontFamily:RW.mono,fontSize:14,fontWeight:700,color:RW.red,opacity:alertPhase}}>+8.4% ▲</div>}
+    <div style={{position:'absolute',left:chartX,top:chartY-48,fontFamily:RW.sans,fontSize:18,color:RW.inkSoft}}><span style={{fontFamily:RW.mono,fontSize:12,letterSpacing:'0.15em',textTransform:'uppercase',color:RW.inkMute,marginRight:12}}>Tracking</span><span style={{fontWeight:600,color:RW.ink}}>Oxtail · Dreamland Foods</span></div>
+    <div style={{position:'absolute',right:120,top:470,width:460,background:RW.ink,color:RW.paper,padding:'28px 32px',borderRadius:4,transform:`translateX(${(1-alertIn)*520}px)`,opacity:alertPhase,boxShadow:'0 30px 60px rgba(0,0,0,0.25)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,fontFamily:RW.mono,fontSize:12,color:RW.red,textTransform:'uppercase',marginBottom:16}}><span style={{width:8,height:8,borderRadius:4,background:RW.red}}/>Price Alert · Just Now</div>
+      <div style={{fontFamily:RW.serif,fontSize:38,lineHeight:1,marginBottom:14}}>Oxtail is up 8.4%</div>
+      <div style={{fontFamily:RW.sans,fontSize:16,color:'rgba(245,241,234,0.7)',marginBottom:20,lineHeight:1.4}}>Dreamland Foods raised from $12.99 → $14.08 per unit on invoice #DR-2094.</div>
+      <div style={{display:'flex',gap:24,fontFamily:RW.mono,fontSize:13}}>
+        {[['Was','$12.99',null],['Now','$14.08',RW.red],['Delta','+$1.09',RW.red]].map(([l,v,c])=><div key={l}><div style={{color:'rgba(245,241,234,0.5)',fontSize:11,textTransform:'uppercase',marginBottom:4}}>{l}</div><div style={{fontVariantNumeric:'tabular-nums',fontSize:18,color:c||undefined}}>{v}</div></div>)}
+      </div>
+    </div>
+  </>);
+}
+Object.assign(window,{Scene1_PriceAlert});
+</script>
+
+<script type="text/babel" data-presets="react">
+function Scene2_VendorCompare({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Feature 02 · Vendor Comparison" title={<>Same product. <em style={{fontStyle:'italic',color:RW.green}}>Three vendors.</em> One winner.</>} subtitle="Compare side-by-side in seconds. The cheapest is highlighted; your savings per unit calculated instantly."/><Scene2Inner/></Sprite>;}
+function Scene2Inner(){
+  const{localTime}=useSprite();
+  const vendors=[{name:'Dreamland Foods',price:12.99,winner:true,delay:0.4},{name:'Import Foods',price:13.99,winner:false,delay:0.8},{name:'ILham Wholesale',price:15.00,winner:false,delay:1.2}];
+  const baseX=240,cardW=440,cardH=520,gap=40,cardY=500;
+  const stampT=clamp((localTime-2.6)/0.5,0,1),stampScale=Easing.easeOutBack(stampT),saveT=clamp((localTime-3.3)/0.6,0,1);
+  return(<>
+    <div style={{position:'absolute',left:240,top:440,fontFamily:RW.sans,fontSize:20,color:RW.inkSoft,display:'flex',alignItems:'center',gap:14}}><span style={{fontFamily:RW.mono,fontSize:12,textTransform:'uppercase',color:RW.inkMute}}>Comparing</span><span style={{fontWeight:600,color:RW.ink,fontSize:22}}>Oxtail · 1 lb</span></div>
+    {vendors.map((v,i)=>{const t=clamp((localTime-v.delay)/0.6,0,1);const eased=Easing.easeOutBack(t);const x=baseX+i*(cardW+gap),y=cardY+(1-eased)*60;const pulse=v.winner&&stampT>0.5?1+Math.sin(localTime*3)*0.008:1;return <div key={v.name} style={{position:'absolute',left:x,top:y,width:cardW,height:cardH,background:v.winner?RW.ink:RW.paper,border:v.winner?`1px solid ${RW.ink}`:`1px solid rgba(255,255,255,0.1)`,color:v.winner?RW.paper:RW.ink,opacity:t,transform:`scale(${pulse})`,padding:'36px',display:'flex',flexDirection:'column',justifyContent:'space-between',boxShadow:v.winner?'0 30px 60px rgba(0,0,0,0.2)':'none'}}>
+      <div><div style={{fontFamily:RW.mono,fontSize:12,color:v.winner?'rgba(245,241,234,0.55)':RW.inkMute,textTransform:'uppercase',marginBottom:18}}>Vendor / {String(i+1).padStart(2,'0')}</div><div style={{fontFamily:RW.serif,fontSize:42,lineHeight:1}}>{v.name}</div></div>
+      <div><div style={{fontFamily:RW.mono,fontSize:12,color:v.winner?'rgba(245,241,234,0.55)':RW.inkMute,textTransform:'uppercase',marginBottom:10}}>Price per unit</div>
+        <div style={{fontFamily:RW.serif,fontSize:120,lineHeight:0.9,fontVariantNumeric:'tabular-nums'}}>$<Counter from={0} to={v.price} start={v.delay+0.2} end={v.delay+1.0} decimals={2} style={{fontFamily:'inherit',fontVariantNumeric:'tabular-nums'}}/></div>
+        {!v.winner&&<div style={{display:'inline-flex',alignItems:'center',gap:6,marginTop:18,padding:'6px 12px',border:`1px solid rgba(255,255,255,0.15)`,borderRadius:999,fontFamily:RW.mono,fontSize:14,color:RW.red,opacity:clamp((localTime-v.delay-1.0)/0.4,0,1),fontVariantNumeric:'tabular-nums'}}>▲ +${(v.price-12.99).toFixed(2)} vs. cheapest</div>}
+        {v.winner&&<div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:18,padding:'6px 12px',background:RW.green,color:RW.ink,fontFamily:RW.mono,fontSize:13,textTransform:'uppercase',fontWeight:700,opacity:stampT,transform:`scale(${stampScale})`,transformOrigin:'left center'}}>★ Cheapest</div>}
+      </div>
+    </div>;})}
+    <div style={{position:'absolute',left:240,top:cardY+cardH+40,width:1440,display:'flex',alignItems:'center',justifyContent:'space-between',opacity:saveT,transform:`translateY(${(1-saveT)*16}px)`}}>
+      <div style={{fontFamily:RW.serif,fontSize:36,color:RW.ink}}>Buying 50 units from Dreamland saves you <span style={{color:RW.green}}>$<Counter from={0} to={100.50} start={3.3} end={4.3} decimals={2} style={{fontFamily:RW.serif,fontVariantNumeric:'tabular-nums'}}/></span> this week.</div>
+      <div style={{fontFamily:RW.mono,fontSize:13,color:RW.inkMute,textTransform:'uppercase',textAlign:'right'}}>Math done<br/>automatically.</div>
+    </div>
+  </>);
+}
+Object.assign(window,{Scene2_VendorCompare});
+</script>
+
+<script type="text/babel" data-presets="react">
+function Scene3_Expiry({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Feature 03 · Expiry Tracker" title={<>Nothing expires <em style={{fontStyle:'italic',color:RW.amber}}>on the shelf</em> unnoticed.</>} subtitle="Track manufacturer and custom expiry dates. 7-day and 3-day alerts before products turn into dead stock."/><Scene3Inner/></Sprite>;}
+function Scene3Inner(){
+  const{localTime}=useSprite();
+  const days=Array.from({length:21},(_,i)=>11+i);
+  const calX=140,calY=520,dayW=56,dayH=84;
+  const sweepT=Easing.easeInOutCubic(clamp(localTime/3.5,0,1));
+  const todayIdx=sweepT*7,todayX=calX+todayIdx*dayW+dayW/2;
+  const products=[{name:'Beef Liver',qty:'4.5 lbs',vendor:'Dreamland',day:14,value:22.50},{name:'Frozen Tilapia',qty:'8 lbs',vendor:'Star Ocean',day:18,value:64.00},{name:'Palm Oil 1L',qty:'6 bottles',vendor:'Import Foods',day:22,value:42.00},{name:'Evaporated Milk',qty:'12 pcs',vendor:'Res Depot',day:25,value:28.00}];
+  return(<>
+    <div style={{position:'absolute',left:calX,top:calY-28,fontFamily:RW.mono,fontSize:12,textTransform:'uppercase',color:RW.inkMute}}>April 2026 · Expiry Timeline</div>
+    {days.map((d,i)=>{const isToday=Math.round(todayIdx)+11===d;return <div key={d} style={{position:'absolute',left:calX+i*dayW,top:calY,width:dayW,height:dayH,borderLeft:'1px solid rgba(255,255,255,0.1)',borderTop:'1px solid rgba(255,255,255,0.1)',borderBottom:'1px solid rgba(255,255,255,0.1)',borderRight:i===days.length-1?'1px solid rgba(255,255,255,0.1)':'none',background:isToday?'rgba(255,255,255,0.05)':'transparent',padding:'10px 8px',fontFamily:RW.mono,fontSize:11,color:RW.inkMute}}>APR {d}</div>;})}
+    <div style={{position:'absolute',left:todayX-1,top:calY-14,width:2,height:dayH+28,background:RW.ink}}/>
+    <div style={{position:'absolute',left:todayX-34,top:calY-38,background:RW.ink,color:RW.paper,fontFamily:RW.mono,fontSize:11,padding:'4px 10px',fontWeight:600}}>TODAY</div>
+    {products.map((p,i)=>{const pinX=calX+(p.day-11)*dayW+dayW/2;const daysUntil=p.day-(Math.round(todayIdx)+11);const urgent=daysUntil<=3&&daysUntil>=0,warn=daysUntil>3&&daysUntil<=7;const color=urgent?RW.red:warn?RW.amber:RW.inkMute;const appearT=clamp((localTime-0.3-i*0.15)/0.5,0,1);const pop=Easing.easeOutBack(appearT);return <React.Fragment key={p.name}>
+      <div style={{position:'absolute',left:pinX-0.5,top:calY+dayH,width:1,height:30,background:color,opacity:appearT}}/>
+      <div style={{position:'absolute',left:pinX-7,top:calY+dayH+28,width:14,height:14,borderRadius:7,background:color,opacity:appearT,transform:`scale(${pop})`,boxShadow:urgent?`0 0 0 ${5+Math.sin(localTime*6)*3}px rgba(232,73,74,0.3)`:'none'}}/>
+      <div style={{position:'absolute',left:pinX-100,top:calY+dayH+56,width:200,opacity:appearT,transform:`translateY(${(1-pop)*10}px)`}}><div style={{fontFamily:RW.sans,fontSize:17,fontWeight:600,color:RW.ink,marginBottom:2}}>{p.name}</div><div style={{fontFamily:RW.mono,fontSize:11,color:RW.inkMute}}>{p.qty} · {p.vendor}</div><div style={{marginTop:8,fontFamily:RW.mono,fontSize:11,color,fontWeight:700,textTransform:'uppercase'}}>{daysUntil<0?'EXPIRED':daysUntil===0?'TODAY':`${daysUntil}d LEFT`}</div></div>
+    </React.Fragment>;})}
+    <div style={{position:'absolute',right:140,top:470,width:420,background:RW.ink,color:RW.paper,padding:'28px 30px',opacity:clamp((localTime-3.2)/0.5,0,1),transform:`translateY(${(1-clamp((localTime-3.2)/0.5,0,1))*24}px)`,boxShadow:'0 30px 60px rgba(0,0,0,0.2)'}}>
+      <div style={{fontFamily:RW.mono,fontSize:11,color:RW.amber,textTransform:'uppercase',marginBottom:14,display:'flex',alignItems:'center',gap:10}}><span style={{width:8,height:8,borderRadius:4,background:RW.amber}}/>Shelf Pull List · Ready</div>
+      <div style={{fontFamily:RW.serif,fontSize:34,lineHeight:1.05,marginBottom:22}}>2 items expire this week.</div>
+      <div style={{fontFamily:RW.sans,fontSize:15,color:'rgba(245,241,234,0.7)',lineHeight:1.4,marginBottom:24}}>Pull Beef Liver today, Tilapia by Saturday. Run a markdown or write off.</div>
+      <div style={{borderTop:'1px solid rgba(245,241,234,0.15)',paddingTop:18,display:'flex',justifyContent:'space-between',fontFamily:RW.mono,fontSize:13}}>
+        <div><div style={{color:'rgba(245,241,234,0.5)',fontSize:11,textTransform:'uppercase',marginBottom:4}}>Value at risk</div><div style={{fontFamily:RW.serif,fontSize:32,fontVariantNumeric:'tabular-nums',lineHeight:1}}>$<Counter from={0} to={86.50} start={3.5} end={4.5} decimals={2} style={{fontFamily:RW.serif,fontVariantNumeric:'tabular-nums'}}/></div></div>
+        <div style={{textAlign:'right'}}><div style={{color:'rgba(245,241,234,0.5)',fontSize:11,textTransform:'uppercase',marginBottom:4}}>Export</div><div style={{fontSize:14,marginTop:6}}>PDF / Email</div></div>
+      </div>
+    </div>
+  </>);
+}
+Object.assign(window,{Scene3_Expiry});
+</script>
+
+<script type="text/babel" data-presets="react">
+function Scene4_Shrinkage({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Feature 04 · Shrinkage & Loss" title={<>Every loss is a <em style={{fontStyle:'italic',color:RW.green}}>tax deduction.</em></>} subtitle="Log spoiled, expired, damaged, and stolen inventory. Monthly tax write-off PDF ready for your accountant."/><Scene4Inner/></Sprite>;}
+function Scene4Inner(){
+  const{localTime}=useSprite();
+  const bins=[{label:'Spoiled',color:RW.amber,dollars:42.30},{label:'Expired',color:RW.red,dollars:58.75},{label:'Damaged',color:RW.inkSoft,dollars:18.00},{label:'Theft',color:RW.ink,dollars:24.50}];
+  const items=[{bin:0,name:'Tomatoes',t:0.2,v:6.50},{bin:1,name:'Beef Liver',t:0.5,v:22.50},{bin:0,name:'Lettuce',t:0.8,v:4.20},{bin:2,name:'Rice Bag 20lb',t:1.1,v:18.00},{bin:1,name:'Milk 2%',t:1.4,v:12.25},{bin:3,name:'Canned Corn',t:1.7,v:8.50},{bin:0,name:'Bananas',t:2.0,v:5.80},{bin:1,name:'Yogurt 6pk',t:2.3,v:14.00},{bin:3,name:'Chocolate Bar',t:2.6,v:16.00},{bin:0,name:'Bread Loaf',t:2.9,v:3.80}];
+  const binW=280,binH=200,binGap=60,binsTotalW=bins.length*binW+(bins.length-1)*binGap,binsStartX=(1920-binsTotalW)/2-200,binY=720;
+  const receiptT=clamp((localTime-3.2)/0.6,0,1),stampT=clamp((localTime-4.5)/0.4,0,1);
+  return(<>
+    <div style={{position:'absolute',left:binsStartX,top:470,fontFamily:RW.mono,fontSize:12,textTransform:'uppercase',color:RW.inkMute}}>Log loss → categorize automatically</div>
+    {bins.map((b,i)=>{const arrived=items.filter(it=>it.bin===i&&localTime>it.t+0.6);const dollars=arrived.reduce((s,it)=>s+it.v,0);return <div key={b.label} style={{position:'absolute',left:binsStartX+i*(binW+binGap),top:binY,width:binW,height:binH,border:`1px solid rgba(255,255,255,0.1)`,borderTop:`3px solid ${b.color}`,background:RW.paper,padding:'22px 24px',display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+      <div><div style={{fontFamily:RW.mono,fontSize:11,textTransform:'uppercase',color:RW.inkMute,marginBottom:6}}>Reason / {String(i+1).padStart(2,'0')}</div><div style={{fontFamily:RW.serif,fontSize:38,lineHeight:1,color:b.color}}>{b.label}</div></div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}><div><div style={{fontFamily:RW.mono,fontSize:10,textTransform:'uppercase',color:RW.inkMute}}>Items</div><div style={{fontFamily:RW.serif,fontSize:42,color:RW.ink,lineHeight:1,fontVariantNumeric:'tabular-nums'}}>{arrived.length}</div></div><div style={{textAlign:'right'}}><div style={{fontFamily:RW.mono,fontSize:10,textTransform:'uppercase',color:RW.inkMute}}>Value</div><div style={{fontFamily:RW.mono,fontSize:18,color:RW.ink,fontVariantNumeric:'tabular-nums'}}>${dollars.toFixed(2)}</div></div></div>
+    </div>;})}
+    {items.map((it,i)=>{const phase=localTime-it.t;if(phase<0||phase>1.2)return null;const fall=Easing.easeInQuad(clamp(phase/0.6,0,1));const fadeOut=clamp((phase-0.6)/0.3,0,1);const targetX=binsStartX+it.bin*(binW+binGap)+binW/2;const startX=targetX+Math.sin(i*2.3)*100;const x=startX+(targetX-startX)*fall,y=560+(binY-10-560)*fall;return <div key={i} style={{position:'absolute',left:x-70,top:y-18,width:140,padding:'6px 12px',background:RW.ink,color:RW.paper,fontFamily:RW.mono,fontSize:12,textAlign:'center',opacity:1-fadeOut,transform:`rotate(${Math.sin(i)*4}deg)`}}>{it.name}<div style={{fontSize:10,color:'rgba(245,241,234,0.6)'}}>${it.v.toFixed(2)}</div></div>;})}
+    <div style={{position:'absolute',right:80,top:470,width:440,background:RW.paper,border:`1px solid rgba(255,255,255,0.1)`,padding:'28px 30px',opacity:receiptT,transform:`translateY(${(1-receiptT)*20}px)`,boxShadow:'0 20px 50px rgba(0,0,0,0.08)'}}>
+      <div style={{fontFamily:RW.mono,fontSize:11,textTransform:'uppercase',color:RW.inkMute,marginBottom:16}}>Monthly Loss Report · April 2026</div>
+      <div style={{display:'flex',flexDirection:'column',gap:10,fontFamily:RW.mono,fontSize:14,color:RW.inkSoft,paddingBottom:16,borderBottom:`1px dashed rgba(255,255,255,0.1)`}}>{bins.map(b=><div key={b.label} style={{display:'flex',justifyContent:'space-between'}}><span>{b.label}</span><span style={{fontVariantNumeric:'tabular-nums'}}>${b.dollars.toFixed(2)}</span></div>)}</div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',paddingTop:16}}><span style={{fontFamily:RW.sans,fontSize:16,color:RW.inkSoft}}>Total deductible</span><span style={{fontFamily:RW.serif,fontSize:44,color:RW.ink,fontVariantNumeric:'tabular-nums',lineHeight:1}}>$<Counter from={0} to={143.55} start={3.4} end={4.4} decimals={2} style={{fontFamily:RW.serif,fontVariantNumeric:'tabular-nums'}}/></span></div>
+      <div style={{position:'absolute',right:20,bottom:20,transform:`rotate(-8deg) scale(${Easing.easeOutBack(stampT)})`,opacity:stampT,border:`3px solid ${RW.green}`,color:RW.green,padding:'10px 18px',fontFamily:RW.mono,fontSize:16,fontWeight:800,letterSpacing:'0.15em'}}>TAX WRITE-OFF</div>
+    </div>
+  </>);
+}
+Object.assign(window,{Scene4_Shrinkage});
+</script>
+
+<script type="text/babel" data-presets="react">
+function Scene5_InvoiceOCR({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Feature 05 · Invoice Vault + PDF OCR" title={<>Drop a PDF. <em style={{fontStyle:'italic',color:RW.brand}}>Watcher reads it.</em></>} subtitle="Upload vendor invoices — AI extracts products, quantities, and prices. Stored securely in the cloud forever."/><Scene5Inner/></Sprite>;}
+function Scene5Inner(){
+  const{localTime}=useSprite();
+  const pdfX=140,pdfY=470,pdfW=620,pdfH=500;
+  const rows=[{name:'Oxtail',qty:12,price:12.99,ly:0.22},{name:'Goat Meat',qty:10,price:5.00,ly:0.32},{name:'Palm Oil 1L',qty:24,price:8.49,ly:0.42},{name:'Fish Powder 200g',qty:30,price:12.00,ly:0.52},{name:'Scotch Bonnet',qty:6,price:4.25,ly:0.62}];
+  const scanStart=0.5,scanEnd=2.8,scanT=clamp((localTime-scanStart)/(scanEnd-scanStart),0,1),scanY=pdfY+pdfH*scanT;
+  const dropT=Easing.easeOutCubic(clamp(localTime/0.5,0,1)),tableT=clamp((localTime-0.8)/0.4,0,1);
+  return(<>
+    <div style={{position:'absolute',left:pdfX,top:pdfY,width:pdfW,height:pdfH,background:'#fff',border:`1px solid #ddd`,boxShadow:'0 30px 60px rgba(0,0,0,0.12)',opacity:dropT,transform:`translateY(${(1-dropT)*20}px)`,padding:'34px 40px',overflow:'hidden'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:20}}><div><div style={{fontFamily:RW.serif,fontSize:30,color:'#111'}}>Dreamland Foods Wholesale</div><div style={{fontFamily:RW.mono,fontSize:11,color:'#888',marginTop:4}}>INVOICE #DR-2094 · APR 14, 2026</div></div><div style={{fontFamily:RW.mono,fontSize:10,color:'#888',border:'1px solid #ddd',padding:'4px 10px'}}>PDF</div></div>
+      <div style={{height:1,background:'#eee',marginBottom:18}}/>
+      <div style={{display:'flex',fontFamily:RW.mono,fontSize:11,color:'#888',textTransform:'uppercase',paddingBottom:10}}><div style={{flex:2}}>Product</div><div style={{flex:1,textAlign:'right'}}>Qty</div><div style={{flex:1,textAlign:'right'}}>Unit</div><div style={{flex:1,textAlign:'right'}}>Line</div></div>
+      {rows.map((r,i)=>{const rowTop=140+i*46;const rowHit=scanY>pdfY+rowTop&&scanY<pdfY+rowTop+80;return <div key={r.name} style={{display:'flex',fontFamily:'sans-serif',fontSize:18,padding:'14px 0',color:'#111',borderBottom:'1px solid #eee',background:rowHit?'rgba(240,165,0,0.15)':'transparent',transition:'background 100ms'}}><div style={{flex:2}}>{r.name}</div><div style={{flex:1,textAlign:'right',fontFamily:RW.mono,fontVariantNumeric:'tabular-nums'}}>{r.qty}</div><div style={{flex:1,textAlign:'right',fontFamily:RW.mono,fontVariantNumeric:'tabular-nums'}}>${r.price.toFixed(2)}</div><div style={{flex:1,textAlign:'right',fontFamily:RW.mono,fontVariantNumeric:'tabular-nums'}}>${(r.qty*r.price).toFixed(2)}</div></div>;})}
+    </div>
+    {scanT>0&&scanT<1&&<><div style={{position:'absolute',left:pdfX,top:scanY-1,width:pdfW,height:2,background:RW.brand,boxShadow:`0 0 24px 4px ${RW.brand}`}}/><div style={{position:'absolute',left:pdfX,top:pdfY+20,background:RW.brand,color:'#fff',padding:'6px 12px',fontFamily:RW.mono,fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:8}}><span style={{width:8,height:8,borderRadius:4,background:'#fff',opacity:0.5+Math.abs(Math.sin(localTime*8))*0.5}}/>SCANNING</div></>}
+    <div style={{position:'absolute',right:140,top:pdfY,width:560,height:pdfH,background:RW.ink,color:RW.paper,opacity:tableT,transform:`translateX(${(1-tableT)*40}px)`,padding:'34px 36px'}}>
+      <div style={{fontFamily:RW.mono,fontSize:11,color:RW.green,textTransform:'uppercase',marginBottom:6,display:'flex',alignItems:'center',gap:10}}><span style={{width:8,height:8,borderRadius:4,background:RW.green}}/>Structured Data · Extracted</div>
+      <div style={{fontFamily:RW.serif,fontSize:34,lineHeight:1,marginBottom:24}}>5 products captured.</div>
+      <div style={{display:'flex',fontFamily:RW.mono,fontSize:10,color:'rgba(245,241,234,0.5)',textTransform:'uppercase',paddingBottom:10,borderBottom:'1px solid rgba(245,241,234,0.15)'}}><div style={{flex:2}}>Product</div><div style={{flex:1,textAlign:'right'}}>Qty</div><div style={{flex:1,textAlign:'right'}}>Price</div></div>
+      {rows.map((r,i)=>{const appear=clamp((localTime-(scanStart+r.ly))/0.3,0,1);return <div key={r.name} style={{display:'flex',padding:'12px 0',borderBottom:'1px solid rgba(245,241,234,0.08)',fontFamily:RW.sans,fontSize:16,opacity:appear,transform:`translateX(${(1-appear)*-20}px)`}}><div style={{flex:2}}>{r.name}</div><div style={{flex:1,textAlign:'right',fontFamily:RW.mono,fontVariantNumeric:'tabular-nums'}}>{r.qty}</div><div style={{flex:1,textAlign:'right',fontFamily:RW.mono,fontVariantNumeric:'tabular-nums'}}>${r.price.toFixed(2)}</div></div>;})}
+      <div style={{position:'absolute',bottom:28,left:36,right:36,fontFamily:RW.mono,fontSize:12,color:'rgba(245,241,234,0.55)',textTransform:'uppercase',display:'flex',justifyContent:'space-between',paddingTop:14,borderTop:'1px solid rgba(245,241,234,0.15)'}}><span>No typing. No errors.</span><span>~2.8s</span></div>
+    </div>
+  </>);
+}
+Object.assign(window,{Scene5_InvoiceOCR});
+</script>
+
+<script type="text/babel" data-presets="react">
+function Scene6_Restock({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Feature 06 · Restock Advisor" title={<>A shopping list that <em style={{fontStyle:'italic',color:RW.green}}>maximizes profit.</em></>} subtitle="Pick what you need. Watcher picks the best vendor per item and tells you exactly how much you'll make."/><Scene6Inner/></Sprite>;}
+function Scene6Inner(){
+  const{localTime}=useSprite();
+  const items=[{name:'Fish Powder 200g',vendor:'ILham',unit:12.00,qty:30,profit:239.70,pct:40.0,delay:0.3},{name:'Goat Meat',vendor:'Dreamland',unit:5.00,qty:10,profit:49.10,pct:49.5,delay:0.8},{name:'Palm Oil 1L',vendor:'Import Foods',unit:8.49,qty:24,profit:108.24,pct:34.8,delay:1.3},{name:'Oxtail',vendor:'Dreamland',unit:12.99,qty:15,profit:175.65,pct:44.2,delay:1.8},{name:'Scotch Bonnet',vendor:'ILham',unit:4.25,qty:20,profit:57.00,pct:38.7,delay:2.3}];
+  const listX=140,listY=490,listW=960,rowH=68,totalProfit=items.reduce((s,x)=>s+x.profit,0),ctaT=clamp((localTime-3.4)/0.5,0,1);
+  return(<>
+    <div style={{position:'absolute',left:listX,top:listY-40,width:listW,display:'flex',justifyContent:'space-between',fontFamily:RW.mono,fontSize:11,color:RW.inkMute,textTransform:'uppercase'}}><div>Profit-First Shopping List · April 18</div><div>5 Items · Ready to Shop</div></div>
+    <div style={{position:'absolute',left:listX,top:listY,width:listW,display:'grid',gridTemplateColumns:'2.2fr 1.8fr 0.8fr 1fr 1fr',fontFamily:RW.mono,fontSize:11,color:RW.inkMute,textTransform:'uppercase',paddingBottom:14,borderBottom:`1px solid rgba(255,255,255,0.1)`}}><div>Product</div><div>Best Vendor</div><div style={{textAlign:'right'}}>Qty</div><div style={{textAlign:'right'}}>Profit</div><div style={{textAlign:'right'}}>Margin</div></div>
+    {items.map((it,i)=>{const t=clamp((localTime-it.delay)/0.5,0,1);const e=Easing.easeOutCubic(t);return <div key={it.name} style={{position:'absolute',left:listX,top:listY+32+i*rowH,width:listW,display:'grid',gridTemplateColumns:'2.2fr 1.8fr 0.8fr 1fr 1fr',alignItems:'center',padding:'16px 0',borderBottom:`1px solid rgba(255,255,255,0.08)`,opacity:t,transform:`translateX(${(1-e)*-30}px)`,fontFamily:RW.sans,fontSize:20,color:RW.ink}}>
+      <div style={{fontWeight:600}}>{it.name}</div>
+      <div style={{display:'flex',alignItems:'center',gap:10,color:RW.inkSoft}}><span style={{fontFamily:RW.mono,fontSize:10,background:RW.ink,color:RW.paper,padding:'3px 8px'}}>★</span>{it.vendor}<span style={{fontFamily:RW.mono,fontSize:13,color:RW.inkMute}}>· ${it.unit.toFixed(2)}</span></div>
+      <div style={{textAlign:'right',fontFamily:RW.mono,fontVariantNumeric:'tabular-nums'}}>{it.qty}</div>
+      <div style={{textAlign:'right',fontFamily:RW.serif,fontSize:28,fontVariantNumeric:'tabular-nums',color:RW.green}}>+${it.profit.toFixed(2)}</div>
+      <div style={{textAlign:'right',fontFamily:RW.mono,fontSize:16,color:RW.inkSoft}}>{it.pct.toFixed(1)}%</div>
+    </div>;})}
+    <div style={{position:'absolute',left:listX,top:listY+32+items.length*rowH+20,width:listW,display:'grid',gridTemplateColumns:'2.2fr 1.8fr 0.8fr 1fr 1fr',alignItems:'baseline',paddingTop:20,borderTop:`3px solid ${RW.ink}`,opacity:clamp((localTime-2.8)/0.4,0,1)}}>
+      <div style={{fontFamily:RW.serif,fontSize:38,color:RW.ink,gridColumn:'span 3'}}>Expected profit, this run</div>
+      <div style={{textAlign:'right',fontFamily:RW.serif,fontSize:68,fontVariantNumeric:'tabular-nums',color:RW.green,lineHeight:1}}>$<Counter from={0} to={totalProfit} start={3.0} end={4.2} decimals={2} style={{fontFamily:RW.serif,fontVariantNumeric:'tabular-nums'}}/></div>
+      <div style={{textAlign:'right',fontFamily:RW.mono,fontSize:20,color:RW.inkSoft}}><Counter from={0} to={41.3} start={3.0} end={4.2} decimals={1} style={{fontFamily:RW.mono}}/>%</div>
+    </div>
+    <div style={{position:'absolute',right:140,top:470,width:360,background:RW.green,color:RW.ink,padding:'32px 34px',opacity:ctaT,transform:`translateY(${(1-ctaT)*16}px)`,boxShadow:'0 30px 60px rgba(0,0,0,0.12)'}}>
+      <div style={{fontFamily:RW.mono,fontSize:11,textTransform:'uppercase',marginBottom:16}}>Export options</div>
+      <div style={{fontFamily:RW.serif,fontSize:42,lineHeight:1,marginBottom:26}}>Take it shopping.</div>
+      {[{label:'PDF shopping list',meta:'Print at the market'},{label:'Email to self',meta:'Open on your phone'},{label:'Send to team',meta:'Manager-approved'}].map((opt,i)=><div key={opt.label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 0',borderTop:i===0?'1px solid rgba(26,24,20,0.2)':'none',borderBottom:'1px solid rgba(26,24,20,0.2)'}}><div><div style={{fontFamily:RW.sans,fontSize:18,fontWeight:600}}>{opt.label}</div><div style={{fontFamily:RW.mono,fontSize:11,opacity:0.7}}>{opt.meta}</div></div><div style={{fontSize:22,fontWeight:600}}>→</div></div>)}
+    </div>
+  </>);
+}
+Object.assign(window,{Scene6_Restock});
+</script>
+
+<script type="text/babel" data-presets="react">
+function Scene7_Watcher({start,duration,index,total}){return <Sprite start={start} end={start+duration}><SceneChrome index={index} total={total} eyebrow="Feature 07 · Watcher AI" title={<>Ask your store <em style={{fontStyle:'italic',color:RW.brand}}>anything.</em></>} subtitle="Watcher knows your products, vendors, and real numbers. Real answers, no spreadsheet diving."/><Scene7Inner/></Sprite>;}
+function Scene7Inner(){
+  const{localTime}=useSprite();
+  const chatX=180,chatY=470,chatW=960;
+  const qText="What was my net profit this month?";
+  const thinkingStart=1.7,thinkingEnd=2.2,ansStart=thinkingEnd;
+  const ansIntro="Your net profit for April 2026 is ";
+  const counterT=clamp((localTime-(ansStart+1.4))/0.8,0,1);
+  const netProfit=268.80*Easing.easeOutCubic(counterT);
+  const suggestions=["Which vendor is cheapest for oxtail?","How much did I lose to spoilage this year?","What products are expiring this week?","Forecast next month's profit."];
+  return(<>
+    <div style={{position:'absolute',left:chatX,top:chatY,width:chatW,minHeight:420,background:RW.paper,border:`1px solid rgba(255,255,255,0.1)`,padding:'32px 36px',boxShadow:'0 20px 50px rgba(0,0,0,0.06)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:14,paddingBottom:20,borderBottom:`1px solid rgba(255,255,255,0.1)`,marginBottom:26}}>
+        <div style={{width:48,height:48,borderRadius:24,background:RW.ink,display:'flex',alignItems:'center',justifyContent:'center'}}><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" stroke={RW.paper} strokeWidth="1.4" fill="none"/><circle cx="11" cy="11" r="3.4" fill={RW.paper}/></svg></div>
+        <div><div style={{fontFamily:RW.serif,fontSize:26,color:RW.ink,lineHeight:1}}>Watcher</div><div style={{fontFamily:RW.mono,fontSize:11,color:RW.inkMute,textTransform:'uppercase',marginTop:4}}>Your AI Store Advisor</div></div>
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8}}><span style={{width:8,height:8,borderRadius:4,background:RW.green}}/><span style={{fontFamily:RW.mono,fontSize:11,color:RW.inkMute,textTransform:'uppercase'}}>Online</span></div>
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:24,opacity:clamp(localTime/0.3,0,1)}}><div style={{maxWidth:600,background:RW.ink,color:RW.paper,padding:'14px 20px',fontFamily:RW.sans,fontSize:20,lineHeight:1.35}}><Typewriter text={qText} start={0.3} cps={36} cursor={localTime<1.65} style={{fontFamily:RW.sans}}/></div></div>
+      {localTime>=thinkingStart&&localTime<thinkingEnd&&<div style={{display:'flex',gap:6,padding:'14px 0'}}>{[0,1,2].map(i=><span key={i} style={{width:10,height:10,borderRadius:5,background:RW.inkMute,opacity:0.4+0.6*Math.abs(Math.sin(localTime*6+i*0.7))}}/>)}</div>}
+      {localTime>=ansStart&&<div style={{fontFamily:RW.sans,fontSize:22,color:RW.ink,lineHeight:1.4,maxWidth:720}}>
+        <Typewriter text={ansIntro} start={ansStart} cps={48} cursor={false}/>
+        {localTime>ansStart+ansIntro.length/48&&<span style={{fontFamily:RW.serif,fontSize:42,color:RW.green,fontVariantNumeric:'tabular-nums',padding:'0 2px'}}>${netProfit.toFixed(2)}</span>}
+        <div style={{height:12}}/>
+        <div style={{fontFamily:RW.mono,fontSize:15,color:RW.inkSoft,lineHeight:1.5}}><Typewriter text={"Revenue $698.80  ·  Gross $288.80 (44.8%)  ·  Losses $20.00"} start={ansStart+1.6} cps={42} cursor={localTime<ansStart+3.0} style={{fontFamily:RW.mono}}/></div>
+      </div>}
+      <div style={{position:'absolute',left:36,right:36,bottom:24,display:'flex',alignItems:'center',gap:12,paddingTop:20,borderTop:`1px solid rgba(255,255,255,0.1)`}}><div style={{flex:1,fontFamily:RW.sans,fontSize:16,color:RW.inkMute,padding:'10px 14px',background:'rgba(255,255,255,0.05)'}}>Ask Watcher anything about your store…</div><div style={{width:40,height:40,background:RW.ink,color:RW.paper,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>↑</div></div>
+    </div>
+    <div style={{position:'absolute',right:80,top:chatY,width:380}}>
+      <div style={{fontFamily:RW.mono,fontSize:11,color:RW.inkMute,textTransform:'uppercase',marginBottom:20}}>Ask anything, like…</div>
+      {suggestions.map((s,i)=>{const t=clamp((localTime-(0.6+i*0.25))/0.4,0,1);const e=Easing.easeOutBack(t);return <div key={s} style={{fontFamily:RW.serif,fontSize:26,color:RW.ink,lineHeight:1.15,padding:'18px 0',borderBottom:`1px solid rgba(255,255,255,0.1)`,opacity:t,transform:`translateX(${(1-e)*24}px)`,display:'flex',gap:12,alignItems:'flex-start'}}><span style={{color:RW.brand,fontSize:20,flexShrink:0}}>✦</span><span>"{s}"</span></div>;})}
+    </div>
+  </>);
+}
+Object.assign(window,{Scene7_Watcher});
+</script>
+
+<script type="text/babel" data-presets="react">
+const SCENES=[{dur:4.0},{dur:6.0},{dur:6.5},{dur:6.0},{dur:6.0},{dur:6.0},{dur:6.5},{dur:6.0},{dur:6.0},{dur:6.5},{dur:5.0}];
+const starts=[];let acc=0;for(const s of SCENES){starts.push(acc);acc+=s.dur;}
+const totalDur=acc,featureTotal=7;
+function RWApp(){
+  const[,bump]=React.useReducer(x=>x+1,0);
+  React.useEffect(()=>{window.addEventListener('rw-tweaks-changed',bump);return()=>window.removeEventListener('rw-tweaks-changed',bump);},[]);
+  return(
+    <Stage width={1920} height={1080} duration={totalDur} background={RW.paper} persistKey="retailwatcher-tour">
+      <SceneIntro           start={starts[0]}  duration={SCENES[0].dur}/>
+      <SceneP1_Spreadsheet  start={starts[1]}  duration={SCENES[1].dur} index={1} total={2}/>
+      <SceneP2_PriceCreep   start={starts[2]}  duration={SCENES[2].dur} index={2} total={2}/>
+      <Scene1_PriceAlert    start={starts[3]}  duration={SCENES[3].dur} index={1} total={featureTotal}/>
+      <Scene2_VendorCompare start={starts[4]}  duration={SCENES[4].dur} index={2} total={featureTotal}/>
+      <Scene3_Expiry        start={starts[5]}  duration={SCENES[5].dur} index={3} total={featureTotal}/>
+      <Scene4_Shrinkage     start={starts[6]}  duration={SCENES[6].dur} index={4} total={featureTotal}/>
+      <Scene5_InvoiceOCR    start={starts[7]}  duration={SCENES[7].dur} index={5} total={featureTotal}/>
+      <Scene6_Restock       start={starts[8]}  duration={SCENES[8].dur} index={6} total={featureTotal}/>
+      <Scene7_Watcher       start={starts[9]}  duration={SCENES[9].dur} index={7} total={featureTotal}/>
+      <SceneOutro           start={starts[10]} duration={SCENES[10].dur}/>
+    </Stage>
+  );
+}
+ReactDOM.createRoot(document.getElementById('rw-tour')).render(<RWApp/>);
 </script>
 </body>
 </html>
