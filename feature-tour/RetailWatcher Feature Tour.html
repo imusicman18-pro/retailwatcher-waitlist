@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>RetailWatcher — Feature Tour</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #0a0a0a; height: 100%; overflow: hidden; font-family: Inter, system-ui, sans-serif; }
+  #root { position: fixed; inset: 0; }
+  em { font-style: italic; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="tweaks-root"></div>
+
+<script>
+  // EDITMODE defaults — hydrated into window.RW_TWEAKS before React mounts.
+  window.RW_TWEAKS = /*EDITMODE-BEGIN*/{
+    "brand": "#E8494A",
+    "ink": "#F0EFE8",
+    "paper": "#0D0F14",
+    "red": "#E8494A",
+    "green": "#45B69C",
+    "amber": "#F0A500",
+    "blue": "#2D7DD2",
+    "contrast": "high",
+    "serifFont": "Instrument Serif",
+    "sansFont": "Inter"
+  }/*EDITMODE-END*/;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="animations.jsx"></script>
+<script type="text/babel" src="scenes/shared.jsx"></script>
+<script type="text/babel" src="tweaks.jsx"></script>
+<script type="text/babel" src="scenes/bookends.jsx"></script>
+<script type="text/babel" src="scenes/problem1-spreadsheet.jsx"></script>
+<script type="text/babel" src="scenes/problem2-price-creep.jsx"></script>
+<script type="text/babel" src="scenes/scene1-price-alert.jsx"></script>
+<script type="text/babel" src="scenes/scene2-vendor-compare.jsx"></script>
+<script type="text/babel" src="scenes/scene3-expiry.jsx"></script>
+<script type="text/babel" src="scenes/scene4-shrinkage.jsx"></script>
+<script type="text/babel" src="scenes/scene5-invoice-ocr.jsx"></script>
+<script type="text/babel" src="scenes/scene6-restock.jsx"></script>
+<script type="text/babel" src="scenes/scene7-watcher.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+  // Scene timeline (each scene ends exactly where the next begins)
+  const SCENES = [
+    { kind: 'intro',    dur: 4.0 },
+    { kind: 'problem1', dur: 6.0 },
+    { kind: 'problem2', dur: 6.5 },
+    { kind: 'scene1',   dur: 6.0 },
+    { kind: 'scene2',   dur: 6.0 },
+    { kind: 'scene3',   dur: 6.0 },
+    { kind: 'scene4',   dur: 6.5 },
+    { kind: 'scene5',   dur: 6.0 },
+    { kind: 'scene6',   dur: 6.0 },
+    { kind: 'scene7',   dur: 6.5 },
+    { kind: 'outro',    dur: 5.0 },
+  ];
+
+  const starts = [];
+  let acc = 0;
+  for (const s of SCENES) { starts.push(acc); acc += s.dur; }
+  const totalDur = acc;
+  const featureTotal = 7;
+
+  function App() {
+    // Re-render the Stage tree whenever tweaks change, so proxied RW tokens propagate.
+    const [, bump] = React.useReducer(x => x + 1, 0);
+    React.useEffect(() => {
+      window.addEventListener('rw-tweaks-changed', bump);
+      return () => window.removeEventListener('rw-tweaks-changed', bump);
+    }, []);
+    return (
+      <Stage
+        width={1920}
+        height={1080}
+        duration={totalDur}
+        background={RW.paper}
+        persistKey="retailwatcher-tour"
+      >
+        <SceneIntro           start={starts[0]} duration={SCENES[0].dur}/>
+        <SceneP1_Spreadsheet  start={starts[1]} duration={SCENES[1].dur} index={1} total={2}/>
+        <SceneP2_PriceCreep   start={starts[2]} duration={SCENES[2].dur} index={2} total={2}/>
+        <Scene1_PriceAlert    start={starts[3]} duration={SCENES[3].dur} index={1} total={featureTotal}/>
+        <Scene2_VendorCompare start={starts[4]} duration={SCENES[4].dur} index={2} total={featureTotal}/>
+        <Scene3_Expiry        start={starts[5]} duration={SCENES[5].dur} index={3} total={featureTotal}/>
+        <Scene4_Shrinkage     start={starts[6]} duration={SCENES[6].dur} index={4} total={featureTotal}/>
+        <Scene5_InvoiceOCR    start={starts[7]} duration={SCENES[7].dur} index={5} total={featureTotal}/>
+        <Scene6_Restock       start={starts[8]} duration={SCENES[8].dur} index={6} total={featureTotal}/>
+        <Scene7_Watcher       start={starts[9]} duration={SCENES[9].dur} index={7} total={featureTotal}/>
+        <SceneOutro           start={starts[10]} duration={SCENES[10].dur}/>
+      </Stage>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  ReactDOM.createRoot(document.getElementById('tweaks-root')).render(<TweaksPanel/>);
+</script>
+</body>
+</html>
