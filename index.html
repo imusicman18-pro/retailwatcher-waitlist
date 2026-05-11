@@ -163,6 +163,8 @@ h1.hero-title .accent{color:var(--red)}
 .sec-icon{font-size:18px}
 
 .pricing-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-top:48px;align-items:stretch}
+@media(max-width:1023px){.pricing-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}}
+@media(max-width:599px){.pricing-grid{grid-template-columns:1fr;gap:16px}}
 .price-card{background:var(--dark2);border:1px solid var(--border);border-radius:20px;padding:24px 20px;position:relative;transition:border-color .2s;display:flex;flex-direction:column}
 .price-card:hover{border-color:var(--border2)}
 .price-card.featured{border-color:rgba(232,73,74,0.35);background:linear-gradient(160deg,rgba(232,73,74,0.08),var(--dark2))}
